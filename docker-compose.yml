@@ -1,0 +1,140 @@
+services:
+  # PostgreSQL service for Patient Service
+  patient-service-db:
+    image: postgres:latest
+    container_name: patient-service-db
+    environment:
+      POSTGRES_USER: admin_user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: db
+    ports:
+      - "5000:5432"
+    volumes:
+      - D:/Patient-Management-System/patient-service-db:/var/lib/postgresql/data
+    networks:
+      - internal
+    restart: unless-stopped
+
+  # PostgreSQL service for Auth Service
+  auth-service-db:
+    image: postgres:latest
+    container_name: auth-service-db
+    environment:
+      POSTGRES_DB: db
+      POSTGRES_PASSWORD: password
+      POSTGRES_USER: admin_user
+    ports:
+      - "5001:5432"  # Expose port 5432 for auth-service-db on port 5001
+    volumes:
+      - D:/Patient-Management-System/auth-service-db:/var/lib/postgresql/data  # Bind mount for persistent data
+    networks:
+      - internal
+    restart: unless-stopped
+
+  # Patient Service
+  patient-service:
+    build:
+      context: ./patient-service # Root directory for building the image
+      dockerfile: Dockerfile  # Dockerfile for patient-service
+    container_name: patient-service
+    environment:
+      BILLING_SERVICE_ADDRESS: billing-service
+      BILLING_SERVICE_GRPC_PORT: 9001
+      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_DATASOURCE_URL: jdbc:postgresql://patient-service-db:5432/db
+      SPRING_DATASOURCE_USERNAME: admin_user
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_SQL_INIT_MODE: always
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    networks:
+      - internal
+    depends_on:
+      - patient-service-db  # Waits for postgres to be ready before starting
+      - kafka     # Ensure Kafka is running before patient-service
+    restart: unless-stopped
+
+  # Billing Service
+  billing-service:
+    build:
+      context: ./billing-service  # Root directory for building the image
+      dockerfile: Dockerfile  # Dockerfile for billing-service
+    container_name: billing-service
+    ports:
+      - "4001:4001"  # Expose port 4001
+      - "9001:9001"  # Expose port 9001
+    networks:
+      - internal
+    depends_on:
+      - patient-service
+      - patient-service-db
+    restart: unless-stopped
+
+  # Kafka Service
+  kafka:
+    image: bitnami/kafka:latest
+    container_name: kafka
+    ports:
+      - "9092:9092"  # Expose internal Kafka port
+      - "9094:9094"  # Expose external Kafka port
+    environment:
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_CFG_NODE_ID: 0
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+    networks:
+      - internal
+    restart: unless-stopped
+
+  # Analytics Service
+  analytics-service:
+    build:
+      context: ./analytics-service  # Root directory for building the image
+      dockerfile: Dockerfile  # Dockerfile for analytics-service
+    container_name: analytics-service
+    ports:
+      - "4002:4002"  # Expose port 4002
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    networks:
+      - internal
+    depends_on:
+      - kafka
+    restart: unless-stopped
+
+  # API Gateway Service
+  api-gateway:
+    build:
+      context: ./api-gateway  # Root directory for building the image
+      dockerfile: Dockerfile  # Dockerfile for api-gateway
+    container_name: api-gateway
+    ports:
+      - "4004:4004"  # Expose port 4004
+    networks:
+      - internal
+    restart: unless-stopped
+
+  # Auth Service
+#  auth-service:
+#    build:
+#      context: ./auth-service  # Root directory for building the image
+#      dockerfile: Dockerfile  # Dockerfile for auth-service
+#    container_name: auth-service
+#    ports:
+#      - "4005:4005"  # Expose port 4005
+#    environment:
+#      SPRING_DATASOURCE_PASSWORD: password
+#      SPRING_DATASOURCE_URL: jdbc:postgresql://auth-service-db:5432/db
+#      SPRING_DATASOURCE_USERNAME: admin_user
+#      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+#      SPRING_SQL_INIT_MODE: always
+#      JWT_SECRET: ohiFAILIUHLWEIGiuhligyugufuyfyufUFUYFUYFUfuyff1ui2t78tugausydg98p
+#    networks:
+#      - internal
+#    restart: unless-stopped
+
+networks:
+  internal:
+    driver: bridge
